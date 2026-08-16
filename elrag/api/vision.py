@@ -1,3 +1,5 @@
+from typing import Annotated
+
 from fastapi import APIRouter, File, UploadFile
 from fastapi.responses import JSONResponse
 
@@ -17,7 +19,9 @@ async def get_vision_data(vision_id: str) -> JSONResponse:
 
 
 @vision_api.post("/vision", response_model=VisionResponse)
-async def extract_features(files: UploadFile = File(...)) -> JSONResponse:
+async def extract_features(
+    files: Annotated[UploadFile, File(description="Image file to analyze")],
+) -> JSONResponse:
     data = await files.read()
     output = await vision_service.process_vision_bytes(data)
     return JSONResponse(status_code=200, content=output.model_dump())

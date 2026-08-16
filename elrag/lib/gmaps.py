@@ -3,8 +3,9 @@ from dotenv import load_dotenv
 import os
 from collections.abc import Sequence
 from urllib.parse import quote
-
+from google.maps import routing_v2
 import httpx
+from elrag.models.schema import RouteRequest
 load_dotenv()
 
 DEFAULT_PLACE_DETAIL_FIELDS = (
@@ -31,6 +32,8 @@ DEFAULT_ROUTE_FIELDS = (
 )
 
 
+
+
 class GoogleMapsService:
     def __init__(
         self,
@@ -48,6 +51,7 @@ class GoogleMapsService:
         self.places_base_url = places_base_url.rstrip("/")
         self.routes_base_url = routes_base_url.rstrip("/")
         self.client = client or httpx.AsyncClient(timeout=timeout)
+        self.routes_client= routing_v2.RoutesClient()
         self._owns_client = client is None
 
     async def __aenter__(self) -> GoogleMapsService:
@@ -140,7 +144,47 @@ class GoogleMapsService:
             json=body,
             field_mask=DEFAULT_ROUTE_FIELDS,
         )
+        
+    async def get_routes(self, route_request: RouteRequest) -> dict: 
+        sdk_origin = self._build_waypoint(route_request.origin)
+        sdk_destination = self._build_waypoint(route_request.destination)
+        request = routing_v2.ComputeRoutesRequest(
+            origin=sdk_origin,
+            destination=sdk_destination,
+            travel_mode=routing_v2.RouteTravelMode.DRIVE,
+            routing_preference=routing_v2.RoutingPreference.TRAFFIC_AWARE,
+        )
 
+        metadata = [
+            ("x-goog-fieldmask", "routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline")
+        ]
+
+        response = self.routes_client.compute_routes(request=request, metadata=metadata)
+        if not response.routes:
+            raise Exception("Tidak ada rute yang ditemukan.")
+
+        route_list = []
+        for route in response.routes:
+            route_dict = {
+                "distance_meters": route.distance_meters,
+                "duration_minutes": route.duration.seconds // 60,
+                "polyline": route.polyline.encoded_polyline
+            }
+            route_list.append(route_dict)
+        return {
+            "status": "success",
+            "total_routes_found": len(route_list),
+            "data": route_list
+        }
+
+
+
+    async def _build_waypoint(self, coords: tuple[float, float]):
+        return routing_v2.Waypoint(
+            location=routing_v2.Location(
+                lat_lng={"latitude": coords[0], "longitude": coords[1]}
+            )
+        )
     async def _get_places(
         self,
         path: str,
@@ -185,6 +229,8 @@ class GoogleMapsService:
         )
         response.raise_for_status()
         return response.json()
+    
+    
 
     def _headers(self, *, field_mask: Sequence[str] | None = None) -> dict[str, str]:
         headers = {
@@ -194,9 +240,16 @@ class GoogleMapsService:
         if field_mask:
             headers["X-Goog-FieldMask"] = ",".join(field_mask)
         return headers
+    
+    
+    d
 
     @staticmethod
     def _set_optional(target: dict, **values: str | None) -> None:
         for key, value in values.items():
             if value is not None:
                 target[key] = value
+
+
+
+

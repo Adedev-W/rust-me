@@ -1,3 +1,5 @@
+from typing import Annotated
+
 from fastapi import APIRouter, File, UploadFile
 from fastapi.responses import JSONResponse
 
@@ -9,7 +11,9 @@ gcs_service = GCSServiceBE()
 
 
 @gcs_api.post("/upload", response_model=GCSUploadResponse)
-async def upload_file_to_gcs(file: UploadFile = File(...)) -> JSONResponse:
+async def upload_file_to_gcs(
+    file: Annotated[UploadFile, File(description="File to upload")],
+) -> JSONResponse:
     try:
         file_bytes = await file.read()
         response = await gcs_service.upload_file_to_gcs(file.filename, file_bytes)

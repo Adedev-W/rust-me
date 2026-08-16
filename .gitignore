@@ -8,3 +8,4 @@ target/
 .api_token.json
 ELRAG-sdk/
 elrag-fe/
+client.py

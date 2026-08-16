@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import FastAPI
 from opentelemetry import metrics, trace
 from opentelemetry.exporter.cloud_monitoring import CloudMonitoringMetricsExporter
-from opentelemetry.exporter.cloud_trace import CloudTraceSpanExporter
+from opentelemetry.exporter.cloud_trace import CloudTraceSpanExporter 
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader

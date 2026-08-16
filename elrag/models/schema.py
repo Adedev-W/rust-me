@@ -74,3 +74,9 @@ class AgentRunResponse(BaseModel):
     run_id: Optional[str] = None
     session_id: Optional[str] = None
     content: Any
+
+
+
+class RouteRequest(BaseModel):
+    origin: tuple[float, float]
+    destination: tuple[float, float]

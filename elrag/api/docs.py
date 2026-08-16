@@ -1,3 +1,5 @@
+from typing import Annotated
+
 from fastapi import APIRouter, File, UploadFile
 from fastapi.responses import JSONResponse
 
@@ -19,7 +21,9 @@ async def process_documents_gcs(gcs_uri: str) -> JSONResponse:
 
 
 @docs_api.post("/documentai/bytes", response_model=DocumentAIResponseBytes)
-async def process_documents_bytes(file: UploadFile = File(...)) -> JSONResponse:
+async def process_documents_bytes(
+    file: Annotated[UploadFile, File(description="Document file to process")],
+) -> JSONResponse:
     """Extracts text and structured data from a document uploaded as bytes using Document AI."""
     file_bytes = await file.read()
     final_response = await docs_service.process_documents_bytes(
