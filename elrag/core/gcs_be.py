@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 from elrag.errors.database import DatabaseUnavailableError
 from elrag.lib.storage_rest import GCSService
 from elrag.models.db.cloud_storage import CloudStorageModel
-from elrag.schemas.db.errors import DatabaseErrorSchema
+from elrag.schemas.db.errors import DatabaseErrorContext
 from elrag.schemas.json.gcs import GcsUploadResponse
 
 
@@ -21,7 +21,7 @@ class GCSServiceBE:
             await asyncio.to_thread(response.save)
         except Exception as exc:
             raise DatabaseUnavailableError(
-                DatabaseErrorSchema(
+                DatabaseErrorContext(
                     code="database_unavailable",
                     operation="save",
                     resource="cloud_storage",
@@ -39,7 +39,7 @@ class GCSServiceBE:
             return await asyncio.to_thread(_get)
         except Exception as exc:
             raise DatabaseUnavailableError(
-                DatabaseErrorSchema(
+                DatabaseErrorContext(
                     code="database_unavailable",
                     operation="read",
                     resource="cloud_storage",

@@ -46,7 +46,7 @@ cargo build
 
 The FastAPI application lives in `elrag/main.py`. It mounts the public API routers, enforces bearer-token authorization, and synchronizes registered Scylla tables on startup. Route modules live under `elrag/api/`, with `auth.py`, `docs.py`, `gcs.py`, `vision.py`, and `agent.py` covering the main application surfaces.
 
-Business logic sits in `elrag/core/`. This layer contains the service implementations that handle OAuth, document workflows, cloud storage operations, and vision-related logic. Database models are split by feature under `elrag/models/db/`, JSON schemas are split by feature under `elrag/schemas/json/`, and `elrag/models/base.py` manages connection and synchronization.
+Business logic sits in `elrag/core/`. This layer contains the service implementations that handle OAuth, document workflows, cloud storage operations, and vision-related logic. Scylla table mappings are split by feature under `elrag/models/db/`, public HTTP schemas are split under `elrag/schemas/json/`, and internal database DTOs such as `DatabaseErrorContext` live under `elrag/schemas/db/`. `elrag/models/base.py` manages connection and synchronization.
 
 The repository also includes `elrag/mcp/` for MCP exposure and `rpc-services/` for a separate Rust RPC component. Those pieces are part of the codebase layout, even if you only use the Python API in day-to-day development.
 
@@ -94,7 +94,7 @@ The repository is small enough to navigate without a large docs tree. The most u
 `elrag/main.py` for application startup and request authorization.
 `elrag/api/` for HTTP endpoints.
 `elrag/core/` for service-layer logic.
-`elrag/models/db/` for feature-level Scylla models and `elrag/schemas/` for JSON and database error schemas.
+`elrag/models/db/` for feature-level Scylla models, `elrag/schemas/json/` for HTTP request and response schemas, and `elrag/schemas/db/` for internal database DTOs.
 `elrag/lib/` for Google Cloud and service wrappers.
 `tests/` for the current automated coverage.
 `scripts/init-scylla.sh` for local Scylla initialization.

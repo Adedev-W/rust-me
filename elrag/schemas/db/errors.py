@@ -1,9 +1,9 @@
 from pydantic import Field
 
-from elrag.schemas.json.base import JsonSchemaBase
+from elrag.schemas.db.base import DatabaseSchemaBase
 
 
-class DatabaseErrorSchema(JsonSchemaBase):
+class DatabaseErrorContext(DatabaseSchemaBase):
     """Internal context describing a database failure."""
 
     code: str = Field(description="Stable database error code")

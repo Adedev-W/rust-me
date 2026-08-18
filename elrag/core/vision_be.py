@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 from elrag.errors.database import DatabaseUnavailableError
 from elrag.lib.vision import VisionService
 from elrag.models.db.vision import VisionModel
-from elrag.schemas.db.errors import DatabaseErrorSchema
+from elrag.schemas.db.errors import DatabaseErrorContext
 from elrag.schemas.json.vision import VisionResponse
 
 
@@ -17,7 +17,7 @@ class VisionServiceBE:
             await asyncio.to_thread(response.save)
         except Exception as exc:
             raise DatabaseUnavailableError(
-                DatabaseErrorSchema(
+                DatabaseErrorContext(
                     code="database_unavailable",
                     operation="save",
                     resource="vision",
@@ -35,7 +35,7 @@ class VisionServiceBE:
             return await asyncio.to_thread(_get)
         except Exception as exc:
             raise DatabaseUnavailableError(
-                DatabaseErrorSchema(
+                DatabaseErrorContext(
                     code="database_unavailable",
                     operation="read",
                     resource="vision",

@@ -1,4 +1,4 @@
-from elrag.schemas.db.errors import DatabaseErrorSchema
+from elrag.schemas.db.errors import DatabaseErrorContext
 
 
 class DatabaseError(RuntimeError):
@@ -7,7 +7,7 @@ class DatabaseError(RuntimeError):
     public_message = "Database operation failed."
     status_code = 500
 
-    def __init__(self, context: DatabaseErrorSchema, cause: Exception | None = None) -> None:
+    def __init__(self, context: DatabaseErrorContext, cause: Exception | None = None) -> None:
         super().__init__(context.code)
         self.context = context
         self.cause = cause

@@ -3,10 +3,10 @@ from __future__ import annotations
 import unittest
 
 from elrag.models.base import MODEL_REGISTRY
-from elrag.schemas.db.errors import DatabaseErrorSchema
+from elrag.schemas.db.errors import DatabaseErrorContext
 from elrag.schemas.json.agent import AgentRunRequest
+from elrag.schemas.json.base import JsonSchemaBase
 from elrag.schemas.json.errors import ApiErrorResponse
-from elrag.schemas.json.gcs import GcsUploadResponse
 
 
 class SchemaArchitectureTest(unittest.TestCase):
@@ -62,8 +62,8 @@ class SchemaArchitectureTest(unittest.TestCase):
             response.model_dump(by_alias=True),
         )
 
-    def test_database_error_schema_is_internal_and_typed(self) -> None:
-        error = DatabaseErrorSchema(
+    def test_database_error_context_is_internal_and_typed(self) -> None:
+        error = DatabaseErrorContext(
             code="database_unavailable",
             operation="read",
             resource="vision",
@@ -72,11 +72,16 @@ class SchemaArchitectureTest(unittest.TestCase):
 
         self.assertEqual("database_unavailable", error.code)
         self.assertTrue(error.retryable)
-
-    def test_legacy_schema_imports_are_compatibility_aliases(self) -> None:
-        from elrag.models.schema import GCSUploadResponse
-
-        self.assertIs(GCSUploadResponse, GcsUploadResponse)
+        self.assertFalse(isinstance(error, JsonSchemaBase))
+        self.assertEqual(
+            {
+                "code": "database_unavailable",
+                "operation": "read",
+                "resource": "vision",
+                "retryable": True,
+            },
+            error.model_dump(by_alias=True),
+        )
 
 
 if __name__ == "__main__":

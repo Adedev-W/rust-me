@@ -11,7 +11,7 @@ from elrag.errors.database import DatabaseSerializationError, DatabaseUnavailabl
 from elrag.lib.documentai import DocumentAIService
 from elrag.lib.storage_rest import GCSService
 from elrag.models.db.document_ai import DocumentAIModel
-from elrag.schemas.db.errors import DatabaseErrorSchema
+from elrag.schemas.db.errors import DatabaseErrorContext
 from elrag.schemas.json.document_ai import DocumentAiBytesResponse, DocumentAiGcsResponse
 
 
@@ -24,7 +24,7 @@ class DocsServiceBE:
             await asyncio.to_thread(response.save)
         except Exception as exc:
             raise DatabaseUnavailableError(
-                DatabaseErrorSchema(
+                DatabaseErrorContext(
                     code="database_unavailable",
                     operation="save",
                     resource="document_ai",
@@ -42,7 +42,7 @@ class DocsServiceBE:
             return await asyncio.to_thread(_get)
         except Exception as exc:
             raise DatabaseUnavailableError(
-                DatabaseErrorSchema(
+                DatabaseErrorContext(
                     code="database_unavailable",
                     operation="read",
                     resource="document_ai",
@@ -164,7 +164,7 @@ def _decode_metadata(raw_metadata: str | None) -> dict | None:
         return json.loads(raw_metadata)
     except json.JSONDecodeError as exc:
         raise DatabaseSerializationError(
-            DatabaseErrorSchema(
+            DatabaseErrorContext(
                 code="database_serialization_error",
                 operation="deserialize",
                 resource="document_ai.metadata",
