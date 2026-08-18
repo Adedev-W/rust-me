@@ -162,7 +162,8 @@ class AuthRouterTest(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(400, response.status_code)
-        self.assertEqual({"message": "invalid OAuth state"}, response.json())
+        self.assertEqual("oauth_state_invalid", response.json()["error"]["code"])
+        self.assertEqual("OAuth state is invalid.", response.json()["error"]["message"])
 
     async def test_token_exchange_failure_returns_401(self) -> None:
         class FailingAuthService:
@@ -181,9 +182,10 @@ class AuthRouterTest(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(401, response.status_code)
+        self.assertEqual("authentication_error", response.json()["error"]["code"])
         self.assertEqual(
-            {"message": "failed to exchange authorization code"},
-            response.json(),
+            "failed to exchange authorization code",
+            response.json()["error"]["message"],
         )
 
     async def test_inactive_user_callback_returns_403(self) -> None:
@@ -209,10 +211,11 @@ class AuthRouterTest(unittest.IsolatedAsyncioTestCase):
             response = await self.client.get(
                 "/auth/callback",
                 params={"code": "code-1", "state": "state-1"},
-            )
+        )
 
         self.assertEqual(403, response.status_code)
-        self.assertEqual({"message": "pending approval"}, response.json())
+        self.assertEqual("authorization_error", response.json()["error"]["code"])
+        self.assertEqual("pending approval", response.json()["error"]["message"])
 
     async def test_active_user_callback_returns_bearer_token(self) -> None:
         user = AuthenticatedUser(
@@ -258,13 +261,21 @@ class AuthRouterTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(200, response.status_code)
         self.assertEqual(
             {
-                "access_token": "app-jwt",
-                "token_type": "bearer",
-                "expires_in": 3600,
-                "user": asdict(user),
+                "accessToken": "app-jwt",
+                "tokenType": "bearer",
+                "expiresIn": 3600,
+                "user": {
+                    "googleSub": user.google_sub,
+                    "email": user.email,
+                    "name": user.name,
+                    "picture": user.picture,
+                    "role": user.role,
+                },
             },
             response.json(),
         )
+        self.assertEqual("google-sub-1", response.json()["user"]["googleSub"])
+        self.assertNotIn("google_sub", response.json()["user"])
 
     async def test_login_sets_state_and_pkce_cookies(self) -> None:
         response = await self.client.get("/auth/login", follow_redirects=False)
@@ -302,9 +313,10 @@ class MainMiddlewareTest(unittest.IsolatedAsyncioTestCase):
             response = await self.client.get("/auth/me")
 
         self.assertEqual(401, response.status_code)
+        self.assertEqual("authentication_required", response.json()["error"]["code"])
         self.assertEqual(
-            {"message": "Authorization bearer token is required"},
-            response.json(),
+            "Authorization bearer token is required.",
+            response.json()["error"]["message"],
         )
 
     async def test_invalid_bearer_token_returns_401(self) -> None:
@@ -322,7 +334,8 @@ class MainMiddlewareTest(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(401, response.status_code)
-        self.assertEqual({"message": "invalid bearer token"}, response.json())
+        self.assertEqual("authentication_error", response.json()["error"]["code"])
+        self.assertEqual("invalid bearer token", response.json()["error"]["message"])
 
     async def test_inactive_user_returns_403(self) -> None:
         class FakeAuthService:
@@ -339,7 +352,8 @@ class MainMiddlewareTest(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(403, response.status_code)
-        self.assertEqual({"message": "pending approval"}, response.json())
+        self.assertEqual("authorization_error", response.json()["error"]["code"])
+        self.assertEqual("pending approval", response.json()["error"]["message"])
 
     async def test_active_user_can_access_me_with_quota_headers(self) -> None:
         user = AuthenticatedUser(
@@ -364,7 +378,18 @@ class MainMiddlewareTest(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(200, response.status_code)
-        self.assertEqual({"user": asdict(user)}, response.json())
+        self.assertEqual(
+            {
+                "user": {
+                    "googleSub": user.google_sub,
+                    "email": user.email,
+                    "name": user.name,
+                    "picture": user.picture,
+                    "role": user.role,
+                }
+            },
+            response.json(),
+        )
         self.assertEqual("1000", response.headers["X-Global-Quota-Limit"])
         self.assertEqual("999", response.headers["X-Global-Quota-Remaining"])
 

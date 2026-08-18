@@ -21,19 +21,19 @@ def register_tools(mcp) -> None:
     async def vision_process_bytes(file_bytes_b64: str) -> dict:
         """Process raw file bytes with Vision OCR and persist the response."""
         response = await _vision_service.process_vision_bytes(_decode_bytes(file_bytes_b64))
-        return response.model_dump()
+        return response.model_dump(by_alias=True)
 
     @mcp.tool
     async def vision_process_gcs(gcs_uri: str) -> dict:
         """Process a GCS object with Vision OCR and persist the response."""
         response = await _vision_service.process_vision_gcs(gcs_uri)
-        return response.model_dump()
+        return response.model_dump(by_alias=True)
 
     @mcp.tool
     async def gcs_upload_file(file_name: str, file_bytes_b64: str) -> dict:
         """Upload a file to GCS and persist the storage metadata."""
         response = await _gcs_service.upload_file_to_gcs(file_name, _decode_bytes(file_bytes_b64))
-        return response.model_dump()
+        return response.model_dump(by_alias=True)
 
     @mcp.tool
     async def gcs_list_files() -> list[str]:
@@ -49,13 +49,16 @@ def register_tools(mcp) -> None:
     async def gcs_download_file(blob_name: str) -> dict:
         """Download a GCS object into the configured local destination."""
         success = await _gcs_service.download_file(blob_name)
-        return {"message": "File downloaded" if success else "Failed to download file", "success": success}
+        return {
+            "message": "File downloaded successfully." if success else "File download failed.",
+            "success": success,
+        }
 
     @mcp.tool
     async def docs_process_gcs(gcs_uri: str) -> dict:
         """Process a GCS document with Document AI and persist the response."""
         response = await _docs_service.process_documents_gcs(gcs_uri)
-        return response.model_dump()
+        return response.model_dump(by_alias=True)
 
     @mcp.tool
     async def docs_process_bytes(
@@ -69,4 +72,4 @@ def register_tools(mcp) -> None:
             filename=filename,
             mime_type=mime_type,
         )
-        return response.model_dump()
+        return response.model_dump(by_alias=True)

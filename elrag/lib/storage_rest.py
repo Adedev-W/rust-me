@@ -1,25 +1,33 @@
-import os
+import logging
+
 from google.cloud import storage
+
+from elrag.errors.api import IntegrationError
+
+logger = logging.getLogger(__name__)
+
 
 class GCSService:
     def __init__(self, bucket_name: str):
-        # SDK otomatis membaca Environment Variable GOOGLE_APPLICATION_CREDENTIALS
         self.client = storage.Client(project="adsapt")
         self.bucket = self.client.bucket(bucket_name)
 
     def upload_file(self, local_file_path: str, destination_blob_name: str):
-        """Mengupload file dari lokal ke GCS Bucket"""
+        """Upload a local file to Google Cloud Storage."""
         try:
             blob = self.bucket.blob(destination_blob_name)
             blob.upload_from_filename(local_file_path)
-            print(f"File {local_file_path} berhasil diupload ke {destination_blob_name}.")
             return True
-        except Exception as e:
-            print(f"Gagal upload ke GCS: {e}")
-            return False
-        
+        except Exception as exc:
+            logger.exception("Google Cloud Storage upload failed")
+            raise IntegrationError(
+                source="gcs",
+                code="gcs_upload_failed",
+                message="Google Cloud Storage upload failed.",
+            ) from exc
+
     def info_files(self, blob_name: str):
-        """Mendapatkan informasi file di GCS Bucket"""
+        """Return metadata for one Google Cloud Storage object."""
         try:
             blob = self.bucket.blob(blob_name)
             if blob.exists():
@@ -29,34 +37,40 @@ class GCSService:
                     "content_type": blob.content_type,
                     "updated": blob.updated,
                 }
-                print(f"Informasi file {blob_name}: {info}")
                 return info
-            else:
-                print(f"File {blob_name} tidak ditemukan di bucket.")
-                return None
-        except Exception as e:
-            print(f"Gagal mendapatkan informasi file: {e}")
             return None
-        
+        except Exception as exc:
+            logger.exception("Google Cloud Storage metadata lookup failed")
+            raise IntegrationError(
+                source="gcs",
+                code="gcs_metadata_lookup_failed",
+                message="Google Cloud Storage metadata lookup failed.",
+            ) from exc
+
     def list_files(self):
-        """Mendapatkan daftar file di GCS Bucket"""
+        """Return object names in the configured bucket."""
         try:
             blobs = self.bucket.list_blobs()
             file_list = [blob.name for blob in blobs]
-            print(f"Daftar file di bucket {self.bucket.name}: {file_list}")
             return file_list
-        except Exception as e:
-            print(f"Gagal mendapatkan daftar file: {e}")
-            return []
-        
+        except Exception as exc:
+            logger.exception("Google Cloud Storage listing failed")
+            raise IntegrationError(
+                source="gcs",
+                code="gcs_listing_failed",
+                message="Google Cloud Storage listing failed.",
+            ) from exc
+
     def download_file(self, source_blob_name: str):
-        """Mendownload file dari GCS Bucket ke lokal"""
+        """Download one Google Cloud Storage object."""
         try:
             blob = self.bucket.blob(source_blob_name)
-            files = blob.download_as_text()
-            print(f"Isi file {source_blob_name}:\n{files}")
+            blob.download_as_text()
             return True
-        except Exception as e:
-            print(f"Gagal download dari GCS: {e}")
-            return False
-
+        except Exception as exc:
+            logger.exception("Google Cloud Storage download failed")
+            raise IntegrationError(
+                source="gcs",
+                code="gcs_download_failed",
+                message="Google Cloud Storage download failed.",
+            ) from exc

@@ -7,37 +7,70 @@ from uuid import UUID, uuid4
 
 from google.protobuf.json_format import MessageToDict
 
+from elrag.errors.database import DatabaseSerializationError, DatabaseUnavailableError
 from elrag.lib.documentai import DocumentAIService
 from elrag.lib.storage_rest import GCSService
-from elrag.models.model import DocumentAI
-from elrag.models.schema import DocumentAIResponseBytes, DocumentAIResponseGCS
+from elrag.models.db.document_ai import DocumentAIModel
+from elrag.schemas.db.errors import DatabaseErrorSchema
+from elrag.schemas.json.document_ai import DocumentAiBytesResponse, DocumentAiGcsResponse
 
 
 class DocsServiceBE:
     def __init__(self) -> None:
         self.bucket_name = os.environ.get("GCS_BUCKET")
 
-    async def save_documentai_response(self, response: DocumentAI) -> DocumentAI:
-        await asyncio.to_thread(response.save)
+    async def save_documentai_response(self, response: DocumentAIModel) -> DocumentAIModel:
+        try:
+            await asyncio.to_thread(response.save)
+        except Exception as exc:
+            raise DatabaseUnavailableError(
+                DatabaseErrorSchema(
+                    code="database_unavailable",
+                    operation="save",
+                    resource="document_ai",
+                    retryable=True,
+                ),
+                cause=exc,
+            ) from exc
         return response
 
-    async def get_documentai_response(self, response_id: str) -> DocumentAI | None:
-        def _get() -> DocumentAI | None:
-            return DocumentAI.objects(id=UUID(response_id)).first()
+    async def get_documentai_response(self, response_id: str) -> DocumentAIModel | None:
+        def _get() -> DocumentAIModel | None:
+            return DocumentAIModel.objects(id=UUID(response_id)).first()
 
-        return await asyncio.to_thread(_get)
+        try:
+            return await asyncio.to_thread(_get)
+        except Exception as exc:
+            raise DatabaseUnavailableError(
+                DatabaseErrorSchema(
+                    code="database_unavailable",
+                    operation="read",
+                    resource="document_ai",
+                    retryable=True,
+                ),
+                cause=exc,
+            ) from exc
 
     @staticmethod
-    def serialize_documentai_response(response: DocumentAI) -> dict:
-        return {
-            "id": str(response.id),
-            "gcs_uri": response.gcs_uri,
-            "filename": response.filename,
-            "metadata": response.metadata,
-            "content": response.content,
-        }
+    def serialize_documentai_response(response: DocumentAIModel) -> DocumentAiGcsResponse | DocumentAiBytesResponse:
+        metadata = _decode_metadata(response.metadata)
+        if response.gcs_uri:
+            return DocumentAiGcsResponse(
+                id=str(response.id),
+                gcs_uri=response.gcs_uri,
+                metadata=metadata,
+                content=response.content,
+            )
+        return DocumentAiBytesResponse(
+            id=str(response.id),
+            filename=response.filename,
+            metadata=metadata,
+            content=response.content,
+        )
 
-    async def process_documents_gcs(self, gcs_uri: str) -> DocumentAIResponseGCS:
+    async def process_documents_gcs(self, gcs_uri: str) -> DocumentAiGcsResponse:
+        if not self.bucket_name:
+            raise ValueError("GCS_BUCKET is not configured")
         gcs_service = GCSService(self.bucket_name)
         gcs_info = await asyncio.to_thread(gcs_service.info_files, gcs_uri)
         if not gcs_info:
@@ -53,7 +86,10 @@ class DocsServiceBE:
             mime_type=gcs_info["content_type"],
         )
 
-        response = DocumentAIResponseGCS(
+        if document is None:
+            raise ValueError("Document AI processing failed.")
+
+        response = DocumentAiGcsResponse(
             id=str(uuid4()),
             gcs_uri=gcs_info["name"],
             metadata=MessageToDict(document._pb),
@@ -73,7 +109,7 @@ class DocsServiceBE:
         file_bytes: bytes,
         filename: str | None,
         mime_type: str | None,
-    ) -> DocumentAIResponseBytes:
+    ) -> DocumentAiBytesResponse:
         document_service = DocumentAIService("us")
         document = await asyncio.to_thread(
             document_service.process_document,
@@ -84,7 +120,10 @@ class DocsServiceBE:
             mime_type=mime_type,
         )
 
-        response = DocumentAIResponseBytes(
+        if document is None:
+            raise ValueError("Document AI processing failed.")
+
+        response = DocumentAiBytesResponse(
             id=str(uuid4()),
             filename=filename,
             metadata=MessageToDict(document._pb),
@@ -108,7 +147,7 @@ class DocsServiceBE:
         metadata: dict | None,
         content: str | None,
     ) -> None:
-        record = DocumentAI(
+        record = DocumentAIModel(
             id=UUID(response_id),
             gcs_uri=gcs_uri,
             filename=filename,
@@ -117,3 +156,19 @@ class DocsServiceBE:
         )
         await self.save_documentai_response(record)
 
+
+def _decode_metadata(raw_metadata: str | None) -> dict | None:
+    if not raw_metadata:
+        return None
+    try:
+        return json.loads(raw_metadata)
+    except json.JSONDecodeError as exc:
+        raise DatabaseSerializationError(
+            DatabaseErrorSchema(
+                code="database_serialization_error",
+                operation="deserialize",
+                resource="document_ai.metadata",
+                retryable=False,
+            ),
+            cause=exc,
+        ) from exc

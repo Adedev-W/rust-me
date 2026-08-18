@@ -9,11 +9,11 @@
 
 ELRAG is a backend platform for document processing, vision tasks, cloud storage workflows, and API orchestration. It combines a FastAPI service layer, Scylla-backed models, Google Cloud integrations, an MCP server, and a Rust RPC scaffold into one codebase.
 
-The project is aimed at teams that need a practical AI-oriented backend rather than a demo app. The Python API exposes the service surface, the model layer persists shared state, and the supporting libraries wrap Google services such as Document AI, Vision, and Cloud Storage.
+The project is aimed at teams that need a practical AI-oriented backend rather than a demo app. The Python API exposes the service surface, the database model layer persists shared state, and the supporting libraries wrap Google services such as Document AI, Vision, and Cloud Storage.
 
 ## What It Includes
 
-ELRAG is organized around a small set of backend responsibilities. The API package exposes routes for auth, document extraction, GCS operations, vision, and agent workflows. The model layer contains the Scylla/Cassandra tables and schema helpers. The `lib/` modules wrap the external services used by the API. The `mcp/` package exposes MCP tooling, while `rpc-services/` contains the Rust RPC service skeleton referenced by the project.
+ELRAG is organized around a small set of backend responsibilities. The API package exposes routes for auth, document extraction, GCS operations, vision, and agent workflows. The database model layer contains feature-level Scylla/Cassandra tables, while `schemas/` contains JSON and database error schemas. The `lib/` modules wrap the external services used by the API. The `mcp/` package exposes MCP tooling, while `rpc-services/` contains the Rust RPC service skeleton referenced by the project.
 
 ## Quick Start
 
@@ -46,7 +46,7 @@ cargo build
 
 The FastAPI application lives in `elrag/main.py`. It mounts the public API routers, enforces bearer-token authorization, and synchronizes registered Scylla tables on startup. Route modules live under `elrag/api/`, with `auth.py`, `docs.py`, `gcs.py`, `vision.py`, and `agent.py` covering the main application surfaces.
 
-Business logic sits in `elrag/core/`. This layer contains the service implementations that handle OAuth, document workflows, cloud storage operations, and vision-related logic. Database models and schema utilities are defined in `elrag/models/`, with `model.py` holding the table definitions and `base.py` managing connection and synchronization.
+Business logic sits in `elrag/core/`. This layer contains the service implementations that handle OAuth, document workflows, cloud storage operations, and vision-related logic. Database models are split by feature under `elrag/models/db/`, JSON schemas are split by feature under `elrag/schemas/json/`, and `elrag/models/base.py` manages connection and synchronization.
 
 The repository also includes `elrag/mcp/` for MCP exposure and `rpc-services/` for a separate Rust RPC component. Those pieces are part of the codebase layout, even if you only use the Python API in day-to-day development.
 
@@ -94,7 +94,7 @@ The repository is small enough to navigate without a large docs tree. The most u
 `elrag/main.py` for application startup and request authorization.
 `elrag/api/` for HTTP endpoints.
 `elrag/core/` for service-layer logic.
-`elrag/models/` for Scylla models and connection utilities.
+`elrag/models/db/` for feature-level Scylla models and `elrag/schemas/` for JSON and database error schemas.
 `elrag/lib/` for Google Cloud and service wrappers.
 `tests/` for the current automated coverage.
 `scripts/init-scylla.sh` for local Scylla initialization.
@@ -107,6 +107,8 @@ For a compact documentation index, see [docs/README.md](docs/README.md).
 The default Scylla contact point is `127.0.0.1` and the default keyspace is `production`. Google Cloud helpers expect standard credentials such as `GOOGLE_APPLICATION_CREDENTIALS`.
 
 Production observability uses OpenTelemetry. Set `GOOGLE_CLOUD_PROJECT`, provide Application Default Credentials, and keep `OTEL_ENABLED=true`. The service account needs Monitoring Metric Writer and Cloud Trace Writer access. `OTEL_SERVICE_NAME`, `OTEL_SERVICE_VERSION`, `DEPLOYMENT_ENVIRONMENT`, `OTEL_TRACE_SAMPLING_RATIO`, and `OTEL_METRIC_EXPORT_INTERVAL_MS` are optional tuning settings.
+
+Application errors use a nested JSON object under `error`. Database and JSON/API errors are exported through separate metrics named `elrag.database.error.count` and `elrag.json.error.count`. Responses use lower camel case such as `cloudStorageId`; requests accept both snake case and camel case.
 
 For local OAuth development, you should also set the Google auth values above and ensure the redirect URI matches the running FastAPI instance. In production, the callback URL should be registered in Google Cloud Console and the app should be deployed behind HTTPS.
 

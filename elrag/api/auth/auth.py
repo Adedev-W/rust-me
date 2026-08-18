@@ -5,6 +5,7 @@ from dataclasses import asdict
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
+from elrag.api.error_handling import build_error_response
 from elrag.core.auth_be import (
     AuthConfigurationError,
     AuthenticationError,
@@ -12,6 +13,12 @@ from elrag.core.auth_be import (
     AuthorizationServiceBE,
     OAUTH_PKCE_VERIFIER_COOKIE,
     OAUTH_STATE_COOKIE,
+)
+from elrag.errors.api import ApiError
+from elrag.schemas.json.auth import (
+    AuthCallbackResponse,
+    AuthMeResponse,
+    AuthenticatedUserResponse,
 )
 
 auth_api = APIRouter()
@@ -32,7 +39,13 @@ async def login(request: Request) -> RedirectResponse:
             pkce_pair.code_challenge,
         )
     except AuthConfigurationError as exc:
-        return JSONResponse(status_code=500, content={"message": str(exc)})
+        return build_error_response(
+            request,
+            status_code=500,
+            code="authentication_configuration_error",
+            message="Authentication service is not configured.",
+            exception=exc,
+        )
 
     response = RedirectResponse(authorization_url, status_code=307)
     secure_cookie = _cookie_secure(request)
@@ -65,9 +78,13 @@ async def callback(
     error: str | None = Query(default=None),
 ) -> JSONResponse:
     if error:
-        return _state_clearing_response(
-            status_code=400,
-            content={"message": "Google OAuth returned an error"},
+        return _state_clearing_error_response(
+            request,
+            ApiError(
+                status_code=400,
+                code="oauth_provider_error",
+                message="Google OAuth returned an error.",
+            ),
         )
 
     expected_state = request.cookies.get(OAUTH_STATE_COOKIE)
@@ -79,9 +96,13 @@ async def callback(
         or not code_verifier
         or state != expected_state
     ):
-        return _state_clearing_response(
-            status_code=400,
-            content={"message": "invalid OAuth state"},
+        return _state_clearing_error_response(
+            request,
+            ApiError(
+                status_code=400,
+                code="oauth_state_invalid",
+                message="OAuth state is invalid.",
+            ),
         )
 
     redirect_uri = auth_service.get_redirect_uri(
@@ -100,42 +121,78 @@ async def callback(
         auth_service.record_login(user)
         access_token = auth_service.create_access_token(user)
     except AuthConfigurationError as exc:
-        return _state_clearing_response(
-            status_code=500,
-            content={"message": str(exc)},
+        return _state_clearing_error_response(
+            request,
+            ApiError(
+                status_code=500,
+                code="authentication_configuration_error",
+                message="Authentication service is not configured.",
+                details=None,
+            ),
         )
     except AuthenticationError as exc:
-        return _state_clearing_response(
-            status_code=401,
-            content={"message": str(exc)},
+        return _state_clearing_error_response(
+            request,
+            ApiError(
+                status_code=401,
+                code="authentication_error",
+                message=str(exc),
+            ),
         )
     except AuthorizationError as exc:
-        return _state_clearing_response(
-            status_code=403,
-            content={"message": str(exc)},
+        return _state_clearing_error_response(
+            request,
+            ApiError(
+                status_code=403,
+                code="authorization_error",
+                message=str(exc),
+            ),
         )
 
-    return _state_clearing_response(
+    response = JSONResponse(
         status_code=200,
-        content={
-            "access_token": access_token,
-            "token_type": "bearer",
-            "expires_in": auth_service.settings.token_ttl_seconds,
-            "user": asdict(auth_user),
-        },
+        content=AuthCallbackResponse(
+            access_token=access_token,
+            token_type="bearer",
+            expires_in=auth_service.settings.token_ttl_seconds,
+            user=AuthenticatedUserResponse(**asdict(auth_user)),
+        ).model_dump(by_alias=True),
     )
+    return _clear_oauth_cookies(response)
 
 
 @auth_api.get("/me")
 async def me(request: Request) -> JSONResponse:
     user = getattr(request.state, "user", None)
     if user is None:
-        return JSONResponse(status_code=401, content={"message": "not authenticated"})
-    return JSONResponse(status_code=200, content={"user": asdict(user)})
+        return build_error_response(
+            request,
+            status_code=401,
+            code="authentication_required",
+            message="Authentication is required.",
+        )
+    return JSONResponse(
+        status_code=200,
+        content=AuthMeResponse(
+            user=AuthenticatedUserResponse(**asdict(user))
+        ).model_dump(by_alias=True),
+    )
 
 
-def _state_clearing_response(status_code: int, content: dict) -> JSONResponse:
-    response = JSONResponse(status_code=status_code, content=content)
+def _state_clearing_error_response(request: Request, error: ApiError) -> JSONResponse:
+    return _clear_oauth_cookies(
+        build_error_response(
+            request,
+            status_code=error.status_code,
+            code=error.code,
+            message=error.message,
+            details=error.details,
+            exception=error,
+        )
+    )
+
+
+def _clear_oauth_cookies(response: JSONResponse) -> JSONResponse:
     response.delete_cookie(OAUTH_STATE_COOKIE)
     response.delete_cookie(OAUTH_PKCE_VERIFIER_COOKIE)
     return response

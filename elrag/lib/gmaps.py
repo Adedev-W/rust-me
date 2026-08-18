@@ -1,11 +1,13 @@
 from __future__ import annotations
-from dotenv import load_dotenv
 import os
 from collections.abc import Sequence
 from urllib.parse import quote
+
+from dotenv import load_dotenv
 from google.maps import routing_v2
 import httpx
-from elrag.models.schema import RouteRequest
+
+from elrag.schemas.json.maps import RouteRequest
 load_dotenv()
 
 DEFAULT_PLACE_DETAIL_FIELDS = (
@@ -161,7 +163,7 @@ class GoogleMapsService:
 
         response = self.routes_client.compute_routes(request=request, metadata=metadata)
         if not response.routes:
-            raise Exception("Tidak ada rute yang ditemukan.")
+            raise Exception("No routes were found.")
 
         route_list = []
         for route in response.routes:
@@ -242,14 +244,9 @@ class GoogleMapsService:
         return headers
     
     
-    d
-
     @staticmethod
     def _set_optional(target: dict, **values: str | None) -> None:
         for key, value in values.items():
             if value is not None:
                 target[key] = value
-
-
-
 

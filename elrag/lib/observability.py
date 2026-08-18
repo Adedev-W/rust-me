@@ -33,6 +33,8 @@ class _Metrics:
     request_duration: Any
     quota_consumed: Any
     quota_rejected: Any
+    database_error_count: Any
+    json_error_count: Any
 
 
 @dataclass
@@ -108,6 +110,16 @@ def _build_metrics() -> _Metrics:
             "elrag.api.quota.rejected",
             description="Requests rejected because quota was exhausted.",
             unit="{request}",
+        ),
+        database_error_count=meter.create_counter(
+            "elrag.database.error.count",
+            description="Database and database serialization errors.",
+            unit="{error}",
+        ),
+        json_error_count=meter.create_counter(
+            "elrag.json.error.count",
+            description="Public JSON and API errors.",
+            unit="{error}",
         ),
     )
 
@@ -204,6 +216,36 @@ def record_request(
         _state.metrics.quota_consumed.add(1, {"http.route": route})
     if status_code == 429:
         _state.metrics.quota_rejected.add(1, {"http.route": route})
+
+
+def record_error(
+    *,
+    layer: str,
+    code: str,
+    route: str,
+    status_code: int,
+    operation: str | None = None,
+    source: str | None = None,
+) -> None:
+    """Record a categorized application error without sensitive values."""
+
+    if _state.metrics is None:
+        return
+
+    attributes: dict[str, str | int] = {
+        "error.code": code,
+        "http.route": route,
+        "http.response.status_code": status_code,
+    }
+    if operation:
+        attributes["error.operation"] = operation
+    if source:
+        attributes["error.source"] = source
+
+    if layer == "database":
+        _state.metrics.database_error_count.add(1, attributes)
+    else:
+        _state.metrics.json_error_count.add(1, attributes)
 
 
 def monotonic() -> float:

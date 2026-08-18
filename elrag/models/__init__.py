@@ -1,5 +1,5 @@
-from .base import MODEL_REGISTRY, register_model, setup_connection, sync_all_tables
-from . import model
+from elrag.models import db
+from elrag.models.base import MODEL_REGISTRY, register_model, setup_connection, sync_all_tables
 
 
 __all__ = [
@@ -7,5 +7,5 @@ __all__ = [
     "register_model",
     "setup_connection",
     "sync_all_tables",
-    "model",
+    "db",
 ]

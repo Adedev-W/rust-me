@@ -5,27 +5,51 @@ import os
 from tempfile import NamedTemporaryFile
 from uuid import UUID, uuid4
 
+from elrag.errors.database import DatabaseUnavailableError
 from elrag.lib.storage_rest import GCSService
-from elrag.models.model import CloudStorage
-from elrag.models.schema import GCSUploadResponse
+from elrag.models.db.cloud_storage import CloudStorageModel
+from elrag.schemas.db.errors import DatabaseErrorSchema
+from elrag.schemas.json.gcs import GcsUploadResponse
 
 
 class GCSServiceBE:
     def __init__(self) -> None:
         self.bucket_name = os.environ.get("GCS_BUCKET")
 
-    async def save_cloud_storage(self, response: CloudStorage) -> CloudStorage:
-        await asyncio.to_thread(response.save)
+    async def save_cloud_storage(self, response: CloudStorageModel) -> CloudStorageModel:
+        try:
+            await asyncio.to_thread(response.save)
+        except Exception as exc:
+            raise DatabaseUnavailableError(
+                DatabaseErrorSchema(
+                    code="database_unavailable",
+                    operation="save",
+                    resource="cloud_storage",
+                    retryable=True,
+                ),
+                cause=exc,
+            ) from exc
         return response
 
-    async def get_cloud_storage(self, storage_id: str) -> CloudStorage | None:
-        def _get() -> CloudStorage | None:
-            return CloudStorage.objects(id=UUID(storage_id)).first()
+    async def get_cloud_storage(self, storage_id: str) -> CloudStorageModel | None:
+        def _get() -> CloudStorageModel | None:
+            return CloudStorageModel.objects(id=UUID(storage_id)).first()
 
-        return await asyncio.to_thread(_get)
+        try:
+            return await asyncio.to_thread(_get)
+        except Exception as exc:
+            raise DatabaseUnavailableError(
+                DatabaseErrorSchema(
+                    code="database_unavailable",
+                    operation="read",
+                    resource="cloud_storage",
+                    retryable=True,
+                ),
+                cause=exc,
+            ) from exc
 
     @staticmethod
-    def serialize_cloud_storage(response: CloudStorage) -> dict:
+    def serialize_cloud_storage(response: CloudStorageModel) -> dict:
         return {
             "id": str(response.id),
             "name": response.name,
@@ -36,7 +60,7 @@ class GCSServiceBE:
             "created_at": response.created_at,
         }
 
-    async def upload_file_to_gcs(self, file_name: str, file_bytes: bytes) -> GCSUploadResponse:
+    async def upload_file_to_gcs(self, file_name: str, file_bytes: bytes) -> GcsUploadResponse:
         if not self.bucket_name:
             raise ValueError("GCS_BUCKET is not configured")
 
@@ -54,21 +78,21 @@ class GCSServiceBE:
             )
 
             if not upload_success:
-                raise ValueError("Failed to upload file to GCS")
+                raise ValueError("Google Cloud Storage upload failed.")
 
             cloud_storage_id = str(uuid4())
-            record = CloudStorage(
+            record = CloudStorageModel(
                 id=UUID(cloud_storage_id),
                 name=file_name,
-                description="Uploaded file to GCS",
+                description="Uploaded file to Google Cloud Storage.",
                 bucket_name=self.bucket_name,
                 file_path=f"gs://{self.bucket_name}/{destination_blob_name}",
                 file_type="application/octet-stream",
             )
             await self.save_cloud_storage(record)
 
-            return GCSUploadResponse(
-                message="File berhasil diupload.",
+            return GcsUploadResponse(
+                message="File uploaded successfully.",
                 cloud_storage_id=cloud_storage_id,
             )
         finally:

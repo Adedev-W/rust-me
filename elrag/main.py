@@ -1,12 +1,14 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
+from uuid import uuid4
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
 from starlette.responses import Response
 from opentelemetry import trace
 
 from elrag.api.auth.auth import auth_api
+from elrag.api.error_handling import build_error_response, register_error_handlers
 from elrag.api.gcs import gcs_api
 from elrag.api.docs import docs_api
 from elrag.api.vision import vision_api
@@ -24,11 +26,12 @@ from elrag.models.base import sync_all_tables
 from elrag.lib.observability import (
     configure_observability,
     monotonic,
+    record_error,
     record_request,
     shutdown_observability,
     validate_observability,
 )
-import elrag.models.model  # noqa: F401
+import elrag.models.db  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +51,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+register_error_handlers(app)
 auth_service = AuthorizationServiceBE()
 PUBLIC_PATHS = {
     "/auth/login",
@@ -62,6 +66,7 @@ NON_USAGE_PATHS = {"/docs", "/redoc", "/openapi.json"}
 @app.middleware("http")
 async def enforce_client_authorization(request: Request, call_next):
     path = request.url.path
+    request.state.request_id = request.headers.get("x-request-id") or str(uuid4())
     should_record_usage = path not in NON_USAGE_PATHS
     started_at = monotonic()
     status_code = 500
@@ -72,15 +77,18 @@ async def enforce_client_authorization(request: Request, call_next):
         if path in PUBLIC_PATHS:
             response: Response = await call_next(request)
             status_code = response.status_code
+            response.headers["X-Request-ID"] = request.state.request_id
             return response
 
         bearer_token = _extract_bearer_token(request)
         if bearer_token is None:
-            response = JSONResponse(
+            response = build_error_response(
+                request,
                 status_code=401,
-                content={"message": "Authorization bearer token is required"},
-                headers=await _best_effort_quota_headers(),
+                code="authentication_required",
+                message="Authorization bearer token is required.",
             )
+            _add_quota_headers(response, await _best_effort_quota_headers())
             status_code = response.status_code
             return response
 
@@ -94,37 +102,55 @@ async def enforce_client_authorization(request: Request, call_next):
                 "X-Global-Quota-Remaining": str(quota_remaining),
             }
         except AuthConfigurationError as exc:
-            response = JSONResponse(status_code=500, content={"message": str(exc)})
+            response = build_error_response(
+                request,
+                status_code=500,
+                code="authentication_configuration_error",
+                message="Authentication service is not configured.",
+                exception=exc,
+            )
             status_code = response.status_code
             return response
         except AuthenticationError as exc:
-            response = JSONResponse(
+            response = build_error_response(
+                request,
                 status_code=401,
-                content={"message": str(exc)},
-                headers=await _best_effort_quota_headers(),
+                code="authentication_error",
+                message=str(exc),
+                exception=exc,
             )
+            _add_quota_headers(response, await _best_effort_quota_headers())
             status_code = response.status_code
             return response
         except AuthorizationError as exc:
-            response = JSONResponse(
+            response = build_error_response(
+                request,
                 status_code=403,
-                content={"message": str(exc)},
-                headers=await _best_effort_quota_headers(),
+                code="authorization_error",
+                message=str(exc),
+                exception=exc,
             )
+            _add_quota_headers(response, await _best_effort_quota_headers())
             status_code = response.status_code
             return response
         except QuotaExceededError as exc:
-            response = JSONResponse(
+            response = build_error_response(
+                request,
                 status_code=429,
-                content={"message": str(exc)},
-                headers=await _best_effort_quota_headers(),
+                code="quota_exceeded",
+                message=str(exc),
+                exception=exc,
             )
+            _add_quota_headers(response, await _best_effort_quota_headers())
             status_code = response.status_code
             return response
-        except QuotaStoreUnavailableError:
-            response = JSONResponse(
+        except QuotaStoreUnavailableError as exc:
+            response = build_error_response(
+                request,
                 status_code=503,
-                content={"message": "quota service unavailable"},
+                code="quota_service_unavailable",
+                message="Quota service is unavailable.",
+                exception=exc,
             )
             status_code = response.status_code
             return response
@@ -133,9 +159,12 @@ async def enforce_client_authorization(request: Request, call_next):
         status_code = response.status_code
         for key, value in headers.items():
             response.headers[key] = value
+        response.headers["X-Request-ID"] = request.state.request_id
         return response
     except Exception as exc:
         status_code = 500
+        if not getattr(request.state, "error_recorded", False):
+            _record_unhandled_error(request, exc)
         span = trace.get_current_span()
         if span.is_recording():
             span.record_exception(exc)
@@ -159,9 +188,30 @@ async def enforce_client_authorization(request: Request, call_next):
 
 async def _best_effort_quota_headers() -> dict[str, str]:
     try:
-        return await auth_service.build_quota_headers()
-    except QuotaStoreUnavailableError:
+        return await asyncio.wait_for(auth_service.build_quota_headers(), timeout=1.0)
+    except (QuotaStoreUnavailableError, asyncio.TimeoutError):
         return {}
+
+
+def _add_quota_headers(response: Response, headers: dict[str, str]) -> None:
+    for key, value in headers.items():
+        response.headers[key] = value
+
+
+def _record_unhandled_error(request: Request, exception: Exception) -> None:
+    request.state.error_layer = "json"
+    request.state.error_code = "internal_error"
+    request.state.error_recorded = True
+    route = getattr(request.scope.get("route"), "path", request.url.path)
+    try:
+        record_error(
+            layer="json",
+            code="internal_error",
+            route=route,
+            status_code=500,
+        )
+    except Exception:
+        logger.exception("Failed to record unhandled error metric")
 
 
 def _extract_bearer_token(request: Request) -> str | None:

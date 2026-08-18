@@ -60,8 +60,8 @@ class AgentApiTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             {
-                "run_id": "run-1",
-                "session_id": "session-1",
+                "runId": "run-1",
+                "sessionId": "session-1",
                 "content": "hasil pencarian",
             },
             response.json(),
@@ -113,7 +113,11 @@ class AgentApiTest(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(502, response.status_code)
-        self.assertEqual({"detail": "agent service unavailable"}, response.json())
+        self.assertEqual("agent_service_unavailable", response.json()["error"]["code"])
+        self.assertEqual(
+            "Agent service is unavailable.",
+            response.json()["error"]["message"],
+        )
 
     async def test_stream_failure_returns_public_error_event(self) -> None:
         async def failing_stream(*args, **kwargs):
@@ -128,7 +132,7 @@ class AgentApiTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(200, response.status_code)
         self.assertIn("event: error", response.text)
-        self.assertIn("agent service unavailable", response.text)
+        self.assertIn("Agent service is unavailable.", response.text)
 
     async def test_request_requires_authentication(self) -> None:
         unauthenticated_app = FastAPI()

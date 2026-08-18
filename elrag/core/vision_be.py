@@ -4,29 +4,53 @@ import asyncio
 import json
 from uuid import UUID, uuid4
 
+from elrag.errors.database import DatabaseUnavailableError
 from elrag.lib.vision import VisionService
-from elrag.models.model import Vision as VisionModel
-from elrag.models.schema import VisionResponse
+from elrag.models.db.vision import VisionModel
+from elrag.schemas.db.errors import DatabaseErrorSchema
+from elrag.schemas.json.vision import VisionResponse
 
 
 class VisionServiceBE:
     async def save_vision_response(self, response: VisionModel) -> VisionModel:
-        await asyncio.to_thread(response.save)
+        try:
+            await asyncio.to_thread(response.save)
+        except Exception as exc:
+            raise DatabaseUnavailableError(
+                DatabaseErrorSchema(
+                    code="database_unavailable",
+                    operation="save",
+                    resource="vision",
+                    retryable=True,
+                ),
+                cause=exc,
+            ) from exc
         return response
 
     async def get_vision_response(self, vision_id: str) -> VisionModel | None:
         def _get() -> VisionModel | None:
             return VisionModel.objects(id=UUID(vision_id)).first()
 
-        return await asyncio.to_thread(_get)
+        try:
+            return await asyncio.to_thread(_get)
+        except Exception as exc:
+            raise DatabaseUnavailableError(
+                DatabaseErrorSchema(
+                    code="database_unavailable",
+                    operation="read",
+                    resource="vision",
+                    retryable=True,
+                ),
+                cause=exc,
+            ) from exc
 
     @staticmethod
-    def serialize_vision_response(response: VisionModel) -> dict:
-        return {
-            "id": str(response.id),
-            "metadata": response.metadata,
-            "content": response.content,
-        }
+    def serialize_vision_response(response: VisionModel) -> VisionResponse:
+        return VisionResponse(
+            id=str(response.id),
+            metadata=response.metadata,
+            content=response.content,
+        )
 
     async def process_vision_bytes(self, file_bytes: bytes) -> VisionResponse:
         vision_service = VisionService()

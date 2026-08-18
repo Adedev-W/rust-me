@@ -20,7 +20,9 @@ from elrag.core.quota import (
     QuotaStoreUnavailableError,
     RedisQuotaStore,
 )
-from elrag.models.model import GoogleOAuthUser
+from elrag.models.db.google_oauth_user import GoogleOAuthUserModel
+
+GoogleOAuthUser = GoogleOAuthUserModel
 
 load_dotenv()
 
@@ -221,7 +223,7 @@ class AuthorizationServiceBE:
             raise AuthenticationError("Google id_token is missing required claims")
         return claims
 
-    def get_or_create_user(self, claims: dict[str, Any]) -> GoogleOAuthUser:
+    def get_or_create_user(self, claims: dict[str, Any]) -> GoogleOAuthUserModel:
         google_sub = str(claims["sub"])
         now = datetime.now(timezone.utc)
         user = self._get_user(google_sub)
@@ -246,17 +248,17 @@ class AuthorizationServiceBE:
         user.save()
         return user
 
-    def require_active_user(self, user: GoogleOAuthUser) -> AuthenticatedUser:
+    def require_active_user(self, user: GoogleOAuthUserModel) -> AuthenticatedUser:
         if not user.is_active:
             raise AuthorizationError("pending approval")
         return self._to_authenticated_user(user)
 
-    def record_login(self, user: GoogleOAuthUser) -> None:
+    def record_login(self, user: GoogleOAuthUserModel) -> None:
         user.last_login_at = datetime.now(timezone.utc)
         user.updated_at = user.last_login_at
         user.save()
 
-    def create_access_token(self, user: GoogleOAuthUser) -> str:
+    def create_access_token(self, user: GoogleOAuthUserModel) -> str:
         settings = self.settings
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(seconds=settings.token_ttl_seconds)
@@ -295,11 +297,11 @@ class AuthorizationServiceBE:
         return self.require_active_user(user)
 
     @staticmethod
-    def _get_user(google_sub: str) -> GoogleOAuthUser | None:
+    def _get_user(google_sub: str) -> GoogleOAuthUserModel | None:
         return GoogleOAuthUser.objects(google_sub=google_sub).first()
 
     @staticmethod
-    def _to_authenticated_user(user: GoogleOAuthUser) -> AuthenticatedUser:
+    def _to_authenticated_user(user: GoogleOAuthUserModel) -> AuthenticatedUser:
         return AuthenticatedUser(
             google_sub=user.google_sub,
             email=user.email,

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from elrag.lib.observability import (
     ObservabilityConfigurationError,
     _read_positive_int,
     _read_sampling_ratio,
+    record_error,
 )
 
 
@@ -38,3 +40,39 @@ class ObservabilityConfigurationTest(unittest.TestCase):
             ):
                 with self.assertRaises(ObservabilityConfigurationError):
                     _read_positive_int("OTEL_METRIC_EXPORT_INTERVAL_MS", 60000)
+
+
+class ObservabilityErrorMetricTest(unittest.TestCase):
+    def test_database_and_json_errors_use_separate_counters(self) -> None:
+        database_counter = SimpleNamespace(add=Mock())
+        json_counter = SimpleNamespace(add=Mock())
+        metrics = SimpleNamespace(
+            database_error_count=database_counter,
+            json_error_count=json_counter,
+        )
+
+        with patch("elrag.lib.observability._state.metrics", metrics):
+            record_error(
+                layer="database",
+                code="database_unavailable",
+                route="/vision/vision",
+                status_code=503,
+                operation="read",
+            )
+            record_error(
+                layer="json",
+                code="validation_error",
+                route="/agent/run",
+                status_code=422,
+            )
+
+        database_counter.add.assert_called_once()
+        json_counter.add.assert_called_once()
+        self.assertEqual(
+            "database_unavailable",
+            database_counter.add.call_args.args[1]["error.code"],
+        )
+        self.assertEqual(
+            "validation_error",
+            json_counter.add.call_args.args[1]["error.code"],
+        )

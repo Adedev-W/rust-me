@@ -12,9 +12,11 @@ The agent endpoint is a native FastAPI route at `POST /agent/run`. It supports J
 
 `elrag/core/` contains the service layer. This is where the backend logic for OAuth, document workflows, storage orchestration, and related behavior lives.
 
-`elrag/models/` defines the Scylla/Cassandra tables and schema helpers. The database bootstrap and table sync logic are also defined here.
+`elrag/models/db/` defines the Scylla/Cassandra tables per feature. `elrag/schemas/json/` defines public request and response schemas, while `elrag/schemas/db/` defines internal database error context. The database bootstrap and table sync logic remain in `elrag/models/base.py`.
 
 `elrag/lib/` wraps external integrations such as Google Cloud Storage, Vision, Document AI, Google Maps, and OpenTelemetry observability.
+
+Public errors use a nested JSON format with stable error codes and request identifiers. Database and JSON/API errors are tracked separately in Google Cloud Monitoring.
 
 `elrag/mcp/` exposes MCP tooling for the project, and `rpc-services/` contains the Rust RPC service scaffold.
 

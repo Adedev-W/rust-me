@@ -5,12 +5,13 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
+from elrag.api.error_handling import build_error_response
 from elrag.lib.agents import GmapsAgent
-from elrag.models.schema import AgentRunRequest, AgentRunResponse
+from elrag.schemas.json.agent import AgentRunRequest, AgentRunResponse
 
 logger = logging.getLogger(__name__)
 
@@ -22,11 +23,16 @@ gmaps_agent = GmapsAgent()
 async def run_agent(
     payload: AgentRunRequest,
     request: Request,
-) -> AgentRunResponse | StreamingResponse:
+) -> AgentRunResponse | JSONResponse | StreamingResponse:
     user = getattr(request.state, "user", None)
     user_id = getattr(user, "google_sub", None)
     if not user_id:
-        raise HTTPException(status_code=401, detail="authenticated user is required")
+        return build_error_response(
+            request,
+            status_code=401,
+            code="authentication_required",
+            message="Authenticated user is required.",
+        )
 
     if payload.stream:
         return StreamingResponse(
@@ -51,7 +57,13 @@ async def run_agent(
         )
     except Exception as exc:
         logger.exception("Agent run failed")
-        raise HTTPException(status_code=502, detail="agent service unavailable") from exc
+        return build_error_response(
+            request,
+            status_code=502,
+            code="agent_service_unavailable",
+            message="Agent service is unavailable.",
+            exception=exc,
+        )
 
     return AgentRunResponse(
         run_id=getattr(output, "run_id", None),
@@ -77,7 +89,15 @@ async def _stream_agent_response(
                 yield _format_sse(event_name, data)
     except Exception:
         logger.exception("Agent stream failed")
-        yield _format_sse("error", {"message": "agent service unavailable"})
+        yield _format_sse(
+            "error",
+            {
+                "error": {
+                    "code": "agent_service_unavailable",
+                    "message": "Agent service is unavailable.",
+                }
+            },
+        )
 
 
 def _to_public_stream_event(
@@ -100,7 +120,10 @@ def _to_public_stream_event(
         data["content"] = jsonable_encoder(getattr(event, "content", None))
         return "complete", data
     if event_type == "RunError":
-        data["message"] = "agent service unavailable"
+        data["error"] = {
+            "code": "agent_service_unavailable",
+            "message": "Agent service is unavailable.",
+        }
         return "error", data
     return None, data
 
